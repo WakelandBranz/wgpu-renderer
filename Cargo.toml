@@ -1,0 +1,17 @@
+[package]
+name = "wgpu-renderer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wgpu = "*"
+thiserror = "2.0.17"
+image = "0.25"
+raw-window-handle = "0.6.2"
+
+[dev-dependencies]
+sdl3 = {version = "0.16.1", features = ["raw-window-handle"]}
+
+[profile.release]
+opt-level = 3
+lto = true

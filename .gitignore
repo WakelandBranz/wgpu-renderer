@@ -1,0 +1,17 @@
+# Rust build artifacts
+/target/
+
+# IDE and OS specific files
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.bak
+
+# Dependency caches (if applicable)
+.cargo/registry/
+.cargo/git/
+
+# Temporary files or logs
+*.log
+tmp/
