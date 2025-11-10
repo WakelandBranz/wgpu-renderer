@@ -1,14 +1,9 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod camera;
+pub mod error;
+pub mod renderer;
+pub mod sprite;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use camera::Camera2D;
+pub use error::RenderError;
+pub use renderer::Renderer;
+pub use sprite::Sprite;
