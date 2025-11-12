@@ -1,12 +1,13 @@
-use std::iter;
+use std::{iter, sync::Arc};
 
-use buffer::*;
+use crate::types::*;
+
 use wgpu_glyph::{Section, Text, ab_glyph};
 use winit::{dpi::PhysicalSize, window::Window};
 
-const FONT_BYTES: &[u8] = include_bytes!("../../res/fonts/PressStart2P-Regular.ttf");
+const FONT_BYTES: &[u8] = include_bytes!("../res/fonts/PressStart2P-Regular.ttf");
 
-pub struct Render<'a> {
+pub struct Renderer {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     #[allow(dead_code)]
@@ -20,7 +21,7 @@ pub struct Render<'a> {
     staging_belt: wgpu::util::StagingBelt,
 }
 
-impl<'a> Render<'a> {
+impl Renderer {
     pub fn width(&self) -> f32 {
         self.config.width as f32
     }
@@ -30,7 +31,7 @@ impl<'a> Render<'a> {
         self.config.height as f32
     }
 
-    pub async fn new(window: Arc<Window>, size: PhysicalSize<u32>) -> Render<'a> {
+    pub async fn new(window: Arc<Window>, size: PhysicalSize<u32>) -> Renderer {
         log::warn!("size: {:?}", size);
         // The instance is a handle to our GPU
         // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
@@ -53,14 +54,12 @@ impl<'a> Render<'a> {
             .await
             .unwrap();
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
-                },
-                None, // Trace path
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                ..Default::default()
+            })
             .await
             .unwrap();
 
@@ -95,8 +94,8 @@ impl<'a> Render<'a> {
             &pipeline_layout,
             config.format,
             &[Vertex::DESC],
-            wgpu::include_wgsl!("../../res/shaders/textured.vert.wgsl"),
-            wgpu::include_wgsl!("../../res/shaders/textured.frag.wgsl"),
+            wgpu::include_wgsl!("../res/shaders/textured.vert.wgsl"),
+            wgpu::include_wgsl!("../res/shaders/textured.frag.wgsl"),
         );
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -138,68 +137,25 @@ impl<'a> Render<'a> {
         self.surface.configure(&self.device, &self.config);
     }
 
-    pub fn render_state(&mut self, state: &state::State) {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    pub fn queue_text(&mut self, text: &str, position: (f32, f32), size: f32, color: [f32; 4]) {
+        let section = Section {
+            screen_position: position,
+            bounds: (self.config.width as f32, self.config.height as f32),
+            layout: wgpu_glyph::Layout::default().h_align(wgpu_glyph::HorizontalAlign::Left),
+            ..Section::default()
+        }
+        .add_text(Text::new(text).with_color(color).with_scale(size));
 
-        let num_indices = if state.ball.visible || state.player1.visible || state.player2.visible {
-            let (stg_vertex, stg_index, num_indices) = QuadBufferBuilder::new()
-                .push_ball(&state.ball)
-                .push_player(&state.player1)
-                .push_player(&state.player2)
-                .build(&self.device);
+        self.glyph_brush.queue(section);
+    }
 
-            stg_vertex.copy_to_buffer(&mut encoder, &self.vertex_buffer);
-            stg_index.copy_to_buffer(&mut encoder, &self.index_buffer);
-            num_indices
-        } else {
-            0
-        };
-
+    pub fn render_text(&mut self) -> Result<(), wgpu::SurfaceError> {
         match self.surface.get_current_texture() {
             Ok(frame) => {
                 let view = frame.texture.create_view(&Default::default());
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Main Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations::default(),
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-
-                if num_indices != 0 {
-                    render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                    render_pass
-                        .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                    render_pass.set_pipeline(&self.pipeline);
-                    render_pass.draw_indexed(0..num_indices, 0, 0..1);
-                }
-
-                drop(render_pass);
-
-                if state.title_text.visible {
-                    draw_text(&state.title_text, &mut self.glyph_brush);
-                }
-                if state.play_button.visible {
-                    draw_text(&state.play_button, &mut self.glyph_brush);
-                }
-                if state.quit_button.visible {
-                    draw_text(&state.quit_button, &mut self.glyph_brush);
-                }
-                if state.player1_score.visible {
-                    draw_text(&state.player1_score, &mut self.glyph_brush);
-                }
-                if state.player2_score.visible {
-                    draw_text(&state.player2_score, &mut self.glyph_brush);
-                }
-                if state.win_text.visible {
-                    draw_text(&state.win_text, &mut self.glyph_brush);
-                }
+                let mut encoder = self
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                 self.glyph_brush
                     .draw_queued(
@@ -215,20 +171,15 @@ impl<'a> Render<'a> {
                 self.staging_belt.finish();
                 self.queue.submit(iter::once(encoder.finish()));
                 frame.present();
+                Ok(())
             }
-            Err(wgpu::SurfaceError::Outdated) => {
-                log::info!("Outdated surface texture");
-                self.surface.configure(&self.device, &self.config);
-            }
-            Err(e) => {
-                log::error!("Error: {}", e);
-            }
+            Err(e) => Err(e),
         }
     }
 }
 
-fn draw_text(text: &state::Text, glyph_brush: &mut wgpu_glyph::GlyphBrush<()>) {
-    let layout = wgpu_glyph::Layout::default().h_align(if text.centered {
+fn draw_text(ui_text: &crate::types::Text, glyph_brush: &mut wgpu_glyph::GlyphBrush<()>) {
+    let layout = wgpu_glyph::Layout::default().h_align(if ui_text.centered {
         wgpu_glyph::HorizontalAlign::Center
     } else {
         wgpu_glyph::HorizontalAlign::Left
@@ -236,16 +187,16 @@ fn draw_text(text: &state::Text, glyph_brush: &mut wgpu_glyph::GlyphBrush<()>) {
 
     let section =
         Section {
-            screen_position: text.position.into(),
-            bounds: text.bounds.into(),
+            screen_position: ui_text.position.into(),
+            bounds: ui_text.bounds.into(),
             layout,
             ..Section::default()
         }
-        .add_text(Text::new(&text.text).with_color(text.color).with_scale(
-            if text.focused {
-                text.size + 8.0
+        .add_text(Text::new(&ui_text.text).with_color(ui_text.color).with_scale(
+            if ui_text.focused {
+                ui_text.size + 8.0
             } else {
-                text.size
+                ui_text.size
             },
         ));
 

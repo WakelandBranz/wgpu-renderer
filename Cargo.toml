@@ -4,19 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-wgpu = "27.0.1"
-wgpu-glpyh = "1"
+winit = "0.30.12"
+wgpu = "26.0.1"
+wgpu_glyph = { version = "0.26", git = "https://github.com/hecrj/wgpu_glyph.git" }
 thiserror = "2.0.17"
 image = "0.25"
 raw-window-handle = "0.6.2"
 glam = { version = "0.30.9", features = ["mint"] }
 bytemuck = { version = "1.24.0", features = ["derive"] }
 pollster = "0.4"
-
-[dev-dependencies]
-sdl3 = {version = "0.16.1", features = ["raw-window-handle"]}
 env_logger = "0.11.8"
 log = "0.4.28"
+
+[dev-dependencies]
+sdl3 = { version = "0.16.1", features = ["raw-window-handle"] }
+
 
 [profile.release]
 opt-level = 3
