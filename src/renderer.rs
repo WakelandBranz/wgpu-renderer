@@ -1,9 +1,9 @@
 use std::{iter, sync::Arc};
 
-use crate::types::*;
-
 use wgpu_glyph::{Section, Text, ab_glyph};
 use winit::{dpi::PhysicalSize, window::Window};
+
+use crate::types::*;
 
 const FONT_BYTES: &[u8] = include_bytes!("../res/fonts/PressStart2P-Regular.ttf");
 
@@ -19,6 +19,8 @@ pub struct Renderer {
     index_buffer: wgpu::Buffer,
     glyph_brush: wgpu_glyph::GlyphBrush<()>,
     staging_belt: wgpu::util::StagingBelt,
+    queued_vertices: Vec<Vertex>,
+    queued_indices: Vec<u32>,
 }
 
 impl Renderer {
@@ -89,25 +91,39 @@ impl Renderer {
             push_constant_ranges: &[],
             label: Some("Pipeline Layout"),
         });
+        let vert_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("vertex shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "../res/shaders/textured.vert.wgsl"
+            ))),
+        });
+
+        let frag_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("fragment shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "../res/shaders/textured.frag.wgsl"
+            ))),
+        });
+
         let pipeline = create_render_pipeline(
             &device,
             &pipeline_layout,
             config.format,
             &[Vertex::DESC],
-            wgpu::include_wgsl!("../res/shaders/textured.vert.wgsl"),
-            wgpu::include_wgsl!("../res/shaders/textured.frag.wgsl"),
+            vert_shader,
+            frag_shader,
         );
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: Vertex::SIZE * 4 * 3,
+            size: Vertex::SIZE * 256,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: U32_SIZE * 6 * 3,
+            size: U32_SIZE * 512,
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -128,6 +144,8 @@ impl Renderer {
             index_buffer,
             glyph_brush,
             staging_belt,
+            queued_vertices: Vec::new(),
+            queued_indices: Vec::new(),
         }
     }
 
@@ -176,31 +194,155 @@ impl Renderer {
             Err(e) => Err(e),
         }
     }
-}
 
-fn draw_text(ui_text: &crate::types::Text, glyph_brush: &mut wgpu_glyph::GlyphBrush<()>) {
-    let layout = wgpu_glyph::Layout::default().h_align(if ui_text.centered {
-        wgpu_glyph::HorizontalAlign::Center
-    } else {
-        wgpu_glyph::HorizontalAlign::Left
-    });
+    pub fn queue_rectangle(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: [f32; 4],
+    ) {
+        let vertex_offset = self.queued_vertices.len() as u32;
 
-    let section =
-        Section {
-            screen_position: ui_text.position.into(),
-            bounds: ui_text.bounds.into(),
-            layout,
-            ..Section::default()
+        self.queued_vertices.extend_from_slice(&[
+            Vertex::with_color(x, y, color),
+            Vertex::with_color(x + width, y, color),
+            Vertex::with_color(x + width, y + height, color),
+            Vertex::with_color(x, y + height, color),
+        ]);
+
+        self.queued_indices.extend_from_slice(&[
+            vertex_offset + 2, vertex_offset + 1, vertex_offset,
+            vertex_offset + 3, vertex_offset + 2, vertex_offset,
+        ]);
+    }
+
+    pub fn queue_square(&mut self, x: f32, y: f32, size: f32, color: [f32; 4]) {
+        self.queue_rectangle(x, y, size, size, color)
+    }
+
+    pub fn queue_circle(&mut self, center_x: f32, center_y: f32, radius: f32, color: [f32; 4]) {
+        const SEGMENTS: usize = 32;
+        let vertex_offset = self.queued_vertices.len() as u32;
+
+        // Center vertex
+        self.queued_vertices.push(Vertex::with_color(center_x, center_y, color));
+
+        for i in 0..SEGMENTS {
+            let angle = 2.0 * std::f32::consts::PI * (i as f32) / (SEGMENTS as f32);
+            let x = center_x + radius * angle.cos();
+            let y = center_y + radius * angle.sin();
+            self.queued_vertices.push(Vertex::with_color(x, y, color));
         }
-        .add_text(Text::new(&ui_text.text).with_color(ui_text.color).with_scale(
-            if ui_text.focused {
-                ui_text.size + 8.0
-            } else {
-                ui_text.size
-            },
-        ));
 
-    glyph_brush.queue(section);
+        for i in 0..SEGMENTS {
+            let next = if i == SEGMENTS - 1 { 1 } else { i + 2 };
+            self.queued_indices.push(vertex_offset + next as u32);
+            self.queued_indices.push(vertex_offset + (i + 1) as u32);
+            self.queued_indices.push(vertex_offset);
+        }
+    }
+
+    pub fn begin_frame(&mut self) -> Result<(), wgpu::SurfaceError> {
+        self.surface.get_current_texture()?;
+        Ok(())
+    }
+
+    pub fn draw_shape(&mut self, num_indices: u32, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Shape Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations::default(),
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..num_indices, 0, 0..1);
+    }
+
+    pub fn render_frame(&mut self) -> Result<(), wgpu::SurfaceError> {
+        match self.surface.get_current_texture() {
+            Ok(frame) => {
+                let view = frame.texture.create_view(&Default::default());
+
+                // Handle buffer uploads
+                if !self.queued_vertices.is_empty() {
+                    self.queue.write_buffer(
+                        &self.vertex_buffer,
+                        0,
+                        bytemuck::cast_slice(&self.queued_vertices),
+                    );
+                    self.queue.write_buffer(
+                        &self.index_buffer,
+                        0,
+                        bytemuck::cast_slice(&self.queued_indices),
+                    );
+                }
+
+                let mut encoder = self
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+                // Create render pass with clear and render shapes
+                {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Shape Render Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+
+                    if !self.queued_vertices.is_empty() {
+                        render_pass.set_pipeline(&self.pipeline);
+                        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.draw_indexed(0..self.queued_indices.len() as u32, 0, 0..1);
+                    }
+                }
+
+                // Render text on top
+                self.glyph_brush
+                    .draw_queued(
+                        &self.device,
+                        &mut self.staging_belt,
+                        &mut encoder,
+                        &view,
+                        self.config.width,
+                        self.config.height,
+                    )
+                    .unwrap();
+
+                self.staging_belt.finish();
+                self.queue.submit(iter::once(encoder.finish()));
+                frame.present();
+
+                // Clear queued data for next frame
+                self.queued_vertices.clear();
+                self.queued_indices.clear();
+
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
 }
 
 fn create_render_pipeline(
@@ -208,11 +350,9 @@ fn create_render_pipeline(
     layout: &wgpu::PipelineLayout,
     color_format: wgpu::TextureFormat,
     vertex_layouts: &[wgpu::VertexBufferLayout],
-    vs_src: wgpu::ShaderModuleDescriptor,
-    fs_src: wgpu::ShaderModuleDescriptor,
+    vs_module: wgpu::ShaderModule,
+    fs_module: wgpu::ShaderModule,
 ) -> wgpu::RenderPipeline {
-    let vs_module = device.create_shader_module(vs_src);
-    let fs_module = device.create_shader_module(fs_src);
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Render Pipeline"),
@@ -240,7 +380,7 @@ fn create_render_pipeline(
             topology: wgpu::PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: wgpu::FrontFace::Ccw,
-            cull_mode: Some(wgpu::Face::Back),
+            cull_mode: None,
             // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
             polygon_mode: wgpu::PolygonMode::Fill,
             // Requires Features::DEPTH_CLIP_CONTROL

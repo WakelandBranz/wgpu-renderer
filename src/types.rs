@@ -1,23 +1,37 @@
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
-
 pub const U32_SIZE: wgpu::BufferAddress = std::mem::size_of::<u32>() as wgpu::BufferAddress;
 
 #[derive(Copy, Clone)]
+#[repr(C)]
 pub struct Vertex {
-    #[allow(dead_code)]
-    position: glam::Vec2<>,
+    pub position: [f32; 2],
+    pub color: [f32; 4],
 }
 
 unsafe impl bytemuck::Pod for Vertex {}
 unsafe impl bytemuck::Zeroable for Vertex {}
 
 impl Vertex {
+    pub fn new(x: f32, y: f32) -> Self {
+        Self {
+            position: [x, y],
+            color: [1.0, 1.0, 1.0, 1.0],
+        }
+    }
+
+    pub fn with_color(x: f32, y: f32, color: [f32; 4]) -> Self {
+        Self {
+            position: [x, y],
+            color,
+        }
+    }
+
     pub const SIZE: wgpu::BufferAddress = std::mem::size_of::<Self>() as wgpu::BufferAddress;
     pub const DESC: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
         array_stride: Vertex::SIZE,
         step_mode: wgpu::VertexStepMode::Vertex,
         attributes: &wgpu::vertex_attr_array![
-            0 => Float32x2
+            0 => Float32x2,
+            1 => Float32x4
         ],
     };
 }

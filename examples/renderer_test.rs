@@ -1,9 +1,12 @@
 use std::sync::Arc;
+
 use wgpu_renderer::renderer::Renderer;
-use winit::application::ApplicationHandler;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::EventLoop;
-use winit::window::WindowAttributes;
+use winit::{
+    application::ApplicationHandler,
+    event::WindowEvent,
+    event_loop::EventLoop,
+    window::WindowAttributes,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -50,6 +53,7 @@ impl ApplicationHandler for RenderApp {
             let size = window.inner_size();
             let renderer = pollster::block_on(Renderer::new(window.clone(), size));
 
+            window.request_redraw();
             self.window = Some(window);
             self.renderer = Some(renderer);
         }
@@ -70,22 +74,27 @@ impl ApplicationHandler for RenderApp {
                     renderer.resize(new_size);
                 }
             }
+            WindowEvent::RedrawRequested => {
+                if let Some(renderer) = &mut self.renderer {
+                    // Render shapes
+                    renderer.queue_rectangle(50.0, 50.0, 100.0, 80.0, [1.0, 0.0, 0.0, 1.0]);
+                    renderer.queue_square(300.0, 100.0, 60.0, [0.0, 1.0, 0.0, 1.0]);
+                    renderer.queue_circle(600.0, 150.0, 40.0, [0.0, 0.0, 1.0, 1.0]);
+
+                    // Queue text
+                    renderer.queue_text("Hello, WGPU!", (100.0, 300.0), 32.0, [1.0, 1.0, 1.0, 1.0]);
+                    renderer.queue_text("Rectangle | Square | Circle", (350.0, 350.0), 16.0, [1.0, 1.0, 0.0, 1.0]);
+
+                    // Render frame (which includes shapes and text)
+                    let _ = renderer.render_frame();
+                }
+
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
             _ => {}
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
-        if let Some(renderer) = &mut self.renderer {
-            // Queue some text to render
-            renderer.queue_text(
-                "Hello, WGPU!",
-                (100.0, 100.0),
-                32.0,
-                [1.0, 1.0, 1.0, 1.0],
-            );
-
-            // Render the text
-            let _ = renderer.render_text();
-        }
-    }
 }
