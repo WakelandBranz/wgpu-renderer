@@ -1,5 +1,9 @@
 use std::{iter, sync::Arc};
 
+use wgpu::{
+    BindGroup, Buffer, BufferUsages,
+    util::{BufferInitDescriptor, DeviceExt},
+};
 use wgpu_glyph::{Section, Text, ab_glyph};
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -19,6 +23,9 @@ pub struct Renderer {
     staging_belt: wgpu::util::StagingBelt,
     queued_vertices: Vec<Vertex>,
     queued_indices: Vec<u32>,
+    // Passed into shaders
+    screen_size_buffer: Buffer,
+    bind_group: BindGroup,
 }
 
 impl Renderer {
@@ -53,16 +60,11 @@ impl Renderer {
             .await
             .unwrap();
 
-        // Log adapter limits to see max texture size
-        let adapter_limits = adapter.limits();
-        log::debug!("GPU Max Texture Dimension 2D: {}", adapter_limits.max_texture_dimension_2d);
-        log::debug!("GPU Max Texture Dimension 3D: {}", adapter_limits.max_texture_dimension_3d);
-
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                required_limits: adapter.limits(),
                 ..Default::default()
             })
             .await
@@ -89,8 +91,22 @@ impl Renderer {
             desired_maximum_frame_latency: 2,
         };
 
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Screen Size BGL"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
             label: Some("Pipeline Layout"),
         });
@@ -106,6 +122,22 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
                 "../res/shaders/textured.frag.wgsl"
             ))),
+        });
+
+        // This buffer can be read by shaders and written to by the CPU
+        let screen_size_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Screen Size Buffer"),
+            contents: bytemuck::cast_slice(&[size.width as f32, size.height as f32]),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Screen Size BG"),
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: screen_size_buffer.as_entire_binding(),
+            }],
         });
 
         let pipeline = create_render_pipeline(
@@ -136,7 +168,6 @@ impl Renderer {
             wgpu_glyph::GlyphBrushBuilder::using_font(font).build(&device, config.format);
         let staging_belt = wgpu::util::StagingBelt::new(1024);
 
-        
         surface.configure(&device, &config);
 
         Self {
@@ -151,14 +182,22 @@ impl Renderer {
             staging_belt,
             queued_vertices: Vec::new(),
             queued_indices: Vec::new(),
+            screen_size_buffer,
+            bind_group,
         }
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
-        // Clamp to wgpu's maximum texture size (2048)
-        const MAX_TEXTURE_SIZE: u32 = 2049;
-        self.config.width = size.width.min(MAX_TEXTURE_SIZE);
-        self.config.height = size.height.min(MAX_TEXTURE_SIZE);
+        // Clamp to device's max 2d texture size
+        let max_texture_size = self.device.limits().max_texture_dimension_2d;
+        self.config.width = size.width.min(max_texture_size);
+        self.config.height = size.height.min(max_texture_size);
+
+        self.queue.write_buffer(
+            &self.screen_size_buffer,
+            0,
+            bytemuck::cast_slice(&[size.width as f32, size.height as f32]),
+        );
         self.surface.configure(&self.device, &self.config);
     }
 
@@ -274,6 +313,7 @@ impl Renderer {
         });
 
         render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         render_pass.draw_indexed(0..num_indices, 0, 0..1);
@@ -327,6 +367,7 @@ impl Renderer {
 
                     if !self.queued_vertices.is_empty() {
                         render_pass.set_pipeline(&self.pipeline);
+                        render_pass.set_bind_group(0, &self.bind_group, &[]);
                         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                         render_pass.set_index_buffer(
                             self.index_buffer.slice(..),

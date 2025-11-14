@@ -7,6 +7,7 @@ pub struct Vertex {
     pub color: [f32; 4],
 }
 
+// Lets me convert vertices to raw bytes
 unsafe impl bytemuck::Pod for Vertex {}
 unsafe impl bytemuck::Zeroable for Vertex {}
 
