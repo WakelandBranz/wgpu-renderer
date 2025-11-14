@@ -131,10 +131,6 @@ impl Renderer {
             wgpu_glyph::GlyphBrushBuilder::using_font(font).build(&device, config.format);
         let staging_belt = wgpu::util::StagingBelt::new(1024);
 
-        // Configure the surface for presentation
-        // Fixes runtime error on MacOS
-        surface.configure(&device, &config);
-
         Self {
             surface,
             adapter,
