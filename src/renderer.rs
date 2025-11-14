@@ -10,7 +10,6 @@ const FONT_BYTES: &[u8] = include_bytes!("../res/fonts/PressStart2P-Regular.ttf"
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
-    #[allow(dead_code)]
     adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -28,7 +27,6 @@ impl Renderer {
         self.config.width as f32
     }
 
-    #[allow(dead_code)]
     pub fn height(&self) -> f32 {
         self.config.height as f32
     }
@@ -150,8 +148,10 @@ impl Renderer {
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
-        self.config.width = size.width;
-        self.config.height = size.height;
+        // Clamp to wgpu's maximum texture size (2048)
+        const MAX_TEXTURE_SIZE: u32 = 2048;
+        self.config.width = size.width.min(MAX_TEXTURE_SIZE);
+        self.config.height = size.height.min(MAX_TEXTURE_SIZE);
         self.surface.configure(&self.device, &self.config);
     }
 
@@ -195,14 +195,7 @@ impl Renderer {
         }
     }
 
-    pub fn queue_rectangle(
-        &mut self,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        color: [f32; 4],
-    ) {
+    pub fn queue_rectangle(&mut self, x: f32, y: f32, width: f32, height: f32, color: [f32; 4]) {
         let vertex_offset = self.queued_vertices.len() as u32;
 
         self.queued_vertices.extend_from_slice(&[
@@ -213,8 +206,12 @@ impl Renderer {
         ]);
 
         self.queued_indices.extend_from_slice(&[
-            vertex_offset + 2, vertex_offset + 1, vertex_offset,
-            vertex_offset + 3, vertex_offset + 2, vertex_offset,
+            vertex_offset + 2,
+            vertex_offset + 1,
+            vertex_offset,
+            vertex_offset + 3,
+            vertex_offset + 2,
+            vertex_offset,
         ]);
     }
 
@@ -227,7 +224,8 @@ impl Renderer {
         let vertex_offset = self.queued_vertices.len() as u32;
 
         // Center vertex
-        self.queued_vertices.push(Vertex::with_color(center_x, center_y, color));
+        self.queued_vertices
+            .push(Vertex::with_color(center_x, center_y, color));
 
         for i in 0..SEGMENTS {
             let angle = 2.0 * std::f32::consts::PI * (i as f32) / (SEGMENTS as f32);
@@ -249,7 +247,12 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn draw_shape(&mut self, num_indices: u32, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+    pub fn draw_shape(
+        &mut self,
+        num_indices: u32,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+    ) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Shape Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -300,7 +303,12 @@ impl Renderer {
                             view: &view,
                             resolve_target: None,
                             ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: 0.0,
+                                    g: 0.0,
+                                    b: 0.0,
+                                    a: 1.0,
+                                }),
                                 store: wgpu::StoreOp::Store,
                             },
                             depth_slice: None,
@@ -313,7 +321,10 @@ impl Renderer {
                     if !self.queued_vertices.is_empty() {
                         render_pass.set_pipeline(&self.pipeline);
                         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.set_index_buffer(
+                            self.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
                         render_pass.draw_indexed(0..self.queued_indices.len() as u32, 0, 0..1);
                     }
                 }
@@ -338,6 +349,10 @@ impl Renderer {
                 self.queued_vertices.clear();
                 self.queued_indices.clear();
 
+                // Reclaim staging belt memory
+                // If we don't do this, we get a memory leak.
+                self.staging_belt.recall();
+
                 Ok(())
             }
             Err(e) => Err(e),
@@ -353,7 +368,6 @@ fn create_render_pipeline(
     vs_module: wgpu::ShaderModule,
     fs_module: wgpu::ShaderModule,
 ) -> wgpu::RenderPipeline {
-
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Render Pipeline"),
         layout: Some(layout),
