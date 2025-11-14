@@ -10,7 +10,6 @@ const FONT_BYTES: &[u8] = include_bytes!("../res/fonts/PressStart2P-Regular.ttf"
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
-    adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
@@ -47,12 +46,18 @@ impl Renderer {
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
+                power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
             .await
             .unwrap();
+
+        // Log adapter limits to see max texture size
+        let adapter_limits = adapter.limits();
+        log::debug!("GPU Max Texture Dimension 2D: {}", adapter_limits.max_texture_dimension_2d);
+        log::debug!("GPU Max Texture Dimension 3D: {}", adapter_limits.max_texture_dimension_3d);
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
@@ -131,9 +136,11 @@ impl Renderer {
             wgpu_glyph::GlyphBrushBuilder::using_font(font).build(&device, config.format);
         let staging_belt = wgpu::util::StagingBelt::new(1024);
 
+        
+        surface.configure(&device, &config);
+
         Self {
             surface,
-            adapter,
             device,
             queue,
             config,
@@ -149,7 +156,7 @@ impl Renderer {
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         // Clamp to wgpu's maximum texture size (2048)
-        const MAX_TEXTURE_SIZE: u32 = 2048;
+        const MAX_TEXTURE_SIZE: u32 = 2049;
         self.config.width = size.width.min(MAX_TEXTURE_SIZE);
         self.config.height = size.height.min(MAX_TEXTURE_SIZE);
         self.surface.configure(&self.device, &self.config);
