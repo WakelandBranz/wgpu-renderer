@@ -21,10 +21,6 @@ naga = { version = "0.20", features = ["glsl-in", "wgsl-out"] }
 anyhow = "1.0"
 glob = "0.3"
 
-[dev-dependencies]
-sdl3 = { version = "0.16.1", features = ["raw-window-handle"] }
-
-
 [profile.release]
 opt-level = 3
 lto = true

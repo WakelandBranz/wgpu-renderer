@@ -1,15 +1,11 @@
 use std::{iter, sync::Arc};
 
-use wgpu::{
-    BindGroup, Buffer, BufferUsages,
-    util::{BufferInitDescriptor, DeviceExt},
-};
-use wgpu_glyph::{Section, Text, ab_glyph};
+use wgpu::{BindGroup, Buffer};
+use wgpu_glyph::{Section, Text};
 use winit::{dpi::PhysicalSize, window::Window};
 
+use crate::init::*;
 use crate::types::*;
-
-const FONT_BYTES: &[u8] = include_bytes!("../res/fonts/PressStart2P-Regular.ttf");
 
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
@@ -39,133 +35,28 @@ impl Renderer {
 
     pub async fn new(window: Arc<Window>, size: PhysicalSize<u32>) -> Renderer {
         log::warn!("size: {:?}", size);
-        // The instance is a handle to our GPU
-        // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            #[cfg(not(target_arch = "wasm32"))]
-            backends: wgpu::Backends::PRIMARY,
-            #[cfg(target_arch = "wasm32")]
-            backends: wgpu::Backends::GL,
-            ..Default::default()
-        });
 
-        let surface = instance.create_surface(window.clone()).unwrap();
+        // Create core wgpu components
+        let instance = create_instance();
+        let surface = create_surface(&instance, window);
+        let adapter = create_adapter(&instance, wgpu::PowerPreference::HighPerformance, &surface).await;
+        let (device, queue) = create_device_and_queue(&adapter).await;
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .unwrap();
+        let config = create_surface_config(&surface, &adapter, size);
 
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                required_limits: adapter.limits(),
-                ..Default::default()
-            })
-            .await
-            .unwrap();
+        let bind_group_layout = create_bind_group_layout(&device);
+        let pipeline_layout = create_pipeline_layout(&device, &bind_group_layout);
 
-        let surface_caps = surface.get_capabilities(&adapter);
-        // Shader code in this tutorial assumes an Srgb surface texture. Using a different
-        // one will result all the colors comming out darker. If you want to support non
-        // Srgb surfaces, you'll need to account for that when drawing to the frame.
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| f.is_srgb())
-            .unwrap_or(surface_caps.formats[0]);
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: size.width,
-            height: size.height,
-            present_mode: surface_caps.present_modes[0],
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
+        let (vert_shader, frag_shader) = create_shader_modules(&device);
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Screen Size BGL"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
+        let screen_size_buffer = create_screen_size_buffer(&device, size);
+        let (vertex_buffer, index_buffer) = create_vertex_and_index_buffers(&device);
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-            label: Some("Pipeline Layout"),
-        });
-        let vert_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("vertex shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
-                "../res/shaders/textured.vert.wgsl"
-            ))),
-        });
+        let bind_group = create_bind_group(&device, &bind_group_layout, &screen_size_buffer);
 
-        let frag_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("fragment shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
-                "../res/shaders/textured.frag.wgsl"
-            ))),
-        });
+        let pipeline = create_render_pipeline(&device, &pipeline_layout, config.format, &[Vertex::DESC], vert_shader, frag_shader);
 
-        // This buffer can be read by shaders and written to by the CPU
-        let screen_size_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Screen Size Buffer"),
-            contents: bytemuck::cast_slice(&[size.width as f32, size.height as f32]),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Screen Size BG"),
-            layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: screen_size_buffer.as_entire_binding(),
-            }],
-        });
-
-        let pipeline = create_render_pipeline(
-            &device,
-            &pipeline_layout,
-            config.format,
-            &[Vertex::DESC],
-            vert_shader,
-            frag_shader,
-        );
-
-        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: Vertex::SIZE * 256,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: U32_SIZE * 512,
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let font = ab_glyph::FontArc::try_from_slice(FONT_BYTES).unwrap();
-        let glyph_brush =
-            wgpu_glyph::GlyphBrushBuilder::using_font(font).build(&device, config.format);
+        let glyph_brush = create_glyph_brush(&device, config.format);
         let staging_belt = wgpu::util::StagingBelt::new(1024);
 
         surface.configure(&device, &config);
@@ -406,59 +297,4 @@ impl Renderer {
             Err(e) => Err(e),
         }
     }
-}
-
-fn create_render_pipeline(
-    device: &wgpu::Device,
-    layout: &wgpu::PipelineLayout,
-    color_format: wgpu::TextureFormat,
-    vertex_layouts: &[wgpu::VertexBufferLayout],
-    vs_module: wgpu::ShaderModule,
-    fs_module: wgpu::ShaderModule,
-) -> wgpu::RenderPipeline {
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("Render Pipeline"),
-        layout: Some(layout),
-        vertex: wgpu::VertexState {
-            module: &vs_module,
-            entry_point: Some("main"),
-            buffers: &vertex_layouts,
-            compilation_options: Default::default(),
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &fs_module,
-            entry_point: Some("main"),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: color_format,
-                blend: Some(wgpu::BlendState {
-                    alpha: wgpu::BlendComponent::REPLACE,
-                    color: wgpu::BlendComponent::REPLACE,
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-            compilation_options: Default::default(),
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: wgpu::FrontFace::Ccw,
-            cull_mode: None,
-            // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-            polygon_mode: wgpu::PolygonMode::Fill,
-            // Requires Features::DEPTH_CLIP_CONTROL
-            unclipped_depth: false,
-            // Requires Features::CONSERVATIVE_RASTERIZATION
-            conservative: false,
-        },
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState {
-            count: 1,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        // If the pipeline will be used with a multiview render pass, this
-        // indicates how many array layers the attachments will have.
-        multiview: None,
-        cache: None,
-    })
 }
