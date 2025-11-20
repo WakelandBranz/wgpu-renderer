@@ -1,7 +1,9 @@
 //! Contains all initialization code. Makes renderer::new() much simpler to read.
 
 use std::sync::Arc;
-use wgpu::{ Adapter, Buffer, Device, Instance, PowerPreference, Queue, Surface };
+#[cfg(not(target_arch = "wasm32"))]
+use wgpu::Backends;
+use wgpu::{ Adapter, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendComponent, BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, Device, DeviceDescriptor, Features, FragmentState, FrontFace, Instance, InstanceDescriptor, MultisampleState, PipelineLayout, PipelineLayoutDescriptor, PolygonMode, PowerPreference, PrimitiveState, PrimitiveTopology, Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages, Surface, SurfaceConfiguration, TextureFormat, TextureUsages, VertexBufferLayout, VertexState };
 use wgpu::util::{ BufferInitDescriptor, DeviceExt };
 use wgpu_glyph::ab_glyph;
 use winit::{ dpi::PhysicalSize, window::Window };
@@ -12,11 +14,11 @@ const FONT_BYTES: &[u8] = include_bytes!("../res/fonts/PressStart2P-Regular.ttf"
 
 pub(crate) fn create_instance() -> Instance {
     Instance::new(
-        &(wgpu::InstanceDescriptor {
+        &(InstanceDescriptor {
             #[cfg(not(target_arch = "wasm32"))]
-            backends: wgpu::Backends::PRIMARY,
+            backends: Backends::PRIMARY,
             #[cfg(target_arch = "wasm32")]
-            backends: wgpu::Backends::GL,
+            backends: Backends::GL,
             ..Default::default()
         })
     )
@@ -33,7 +35,7 @@ pub(crate) async fn create_adapter(
 ) -> Adapter {
     instance
         .request_adapter(
-            &(wgpu::RequestAdapterOptions {
+            &(RequestAdapterOptions {
                 power_preference,
                 compatible_surface: Some(surface),
                 force_fallback_adapter: false,
@@ -45,9 +47,9 @@ pub(crate) async fn create_adapter(
 pub(crate) async fn create_device_and_queue(adapter: &Adapter) -> (Device, Queue) {
     adapter
         .request_device(
-            &(wgpu::DeviceDescriptor {
+            &(DeviceDescriptor {
                 label: None,
-                required_features: wgpu::Features::empty(),
+                required_features: Features::empty(),
                 required_limits: adapter.limits(),
                 ..Default::default()
             })
@@ -59,7 +61,7 @@ pub(crate) fn create_surface_config(
     surface: &Surface<'_>,
     adapter: &Adapter,
     size: PhysicalSize<u32>
-) -> wgpu::SurfaceConfiguration {
+) -> SurfaceConfiguration {
     let surface_caps = surface.get_capabilities(adapter);
     let surface_format = surface_caps.formats
         .iter()
@@ -67,8 +69,8 @@ pub(crate) fn create_surface_config(
         .find(|f| f.is_srgb())
         .unwrap_or(surface_caps.formats[0]);
 
-    wgpu::SurfaceConfiguration {
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+    SurfaceConfiguration {
+        usage: TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
         width: size.width,
         height: size.height,
@@ -79,16 +81,16 @@ pub(crate) fn create_surface_config(
     }
 }
 
-pub(crate) fn create_bind_group_layout(device: &Device) -> wgpu::BindGroupLayout {
+pub(crate) fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(
-        &(wgpu::BindGroupLayoutDescriptor {
+        &(BindGroupLayoutDescriptor {
             label: Some("Screen Size BGL"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
+                BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -101,10 +103,10 @@ pub(crate) fn create_bind_group_layout(device: &Device) -> wgpu::BindGroupLayout
 
 pub(crate) fn create_pipeline_layout(
     device: &Device,
-    bind_group_layout: &wgpu::BindGroupLayout
-) -> wgpu::PipelineLayout {
+    bind_group_layout: &BindGroupLayout
+) -> PipelineLayout {
     device.create_pipeline_layout(
-        &(wgpu::PipelineLayoutDescriptor {
+        &(PipelineLayoutDescriptor {
             bind_group_layouts: &[bind_group_layout],
             push_constant_ranges: &[],
             label: Some("Pipeline Layout"),
@@ -112,17 +114,17 @@ pub(crate) fn create_pipeline_layout(
     )
 }
 
-pub(crate) fn create_shader_modules(device: &Device) -> (wgpu::ShaderModule, wgpu::ShaderModule) {
-    let vert_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+pub(crate) fn create_shader_modules(device: &Device) -> (ShaderModule, ShaderModule) {
+    let vert_shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("vertex shader"),
-        source: wgpu::ShaderSource::Wgsl(
+        source: ShaderSource::Wgsl(
             std::borrow::Cow::Borrowed(include_str!("../res/shaders/textured.vert.wgsl"))
         ),
     });
 
-    let frag_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    let frag_shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("fragment shader"),
-        source: wgpu::ShaderSource::Wgsl(
+        source: ShaderSource::Wgsl(
             std::borrow::Cow::Borrowed(include_str!("../res/shaders/textured.frag.wgsl"))
         ),
     });
@@ -135,26 +137,26 @@ pub(crate) fn create_screen_size_buffer(device: &Device, size: PhysicalSize<u32>
         &(BufferInitDescriptor {
             label: Some("Screen Size Buffer"),
             contents: bytemuck::cast_slice(&[size.width as f32, size.height as f32]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         })
     )
 }
 
 pub(crate) fn create_vertex_and_index_buffers(device: &Device) -> (Buffer, Buffer) {
     let vertex_buffer = device.create_buffer(
-        &(wgpu::BufferDescriptor {
+        &(BufferDescriptor {
             label: None,
             size: Vertex::SIZE * 256,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         })
     );
 
     let index_buffer = device.create_buffer(
-        &(wgpu::BufferDescriptor {
+        &(BufferDescriptor {
             label: None,
             size: U32_SIZE * 512,
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         })
     );
@@ -164,15 +166,15 @@ pub(crate) fn create_vertex_and_index_buffers(device: &Device) -> (Buffer, Buffe
 
 pub(crate) fn create_bind_group(
     device: &Device,
-    bind_group_layout: &wgpu::BindGroupLayout,
+    bind_group_layout: &BindGroupLayout,
     screen_size_buffer: &Buffer
-) -> wgpu::BindGroup {
+) -> BindGroup {
     device.create_bind_group(
-        &(wgpu::BindGroupDescriptor {
+        &(BindGroupDescriptor {
             label: Some("Screen Size BG"),
             layout: bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
+                BindGroupEntry {
                     binding: 0,
                     resource: screen_size_buffer.as_entire_binding(),
                 },
@@ -183,48 +185,48 @@ pub(crate) fn create_bind_group(
 
 pub(crate) fn create_render_pipeline(
     device: &Device,
-    pipeline_layout: &wgpu::PipelineLayout,
-    surface_format: wgpu::TextureFormat,
-    vertex_layouts: &[wgpu::VertexBufferLayout],
-    vert_shader: wgpu::ShaderModule,
-    frag_shader: wgpu::ShaderModule
-) -> wgpu::RenderPipeline {
+    pipeline_layout: &PipelineLayout,
+    surface_format: TextureFormat,
+    vertex_layouts: &[VertexBufferLayout],
+    vert_shader: ShaderModule,
+    frag_shader: ShaderModule
+) -> RenderPipeline {
     device.create_render_pipeline(
-        &(wgpu::RenderPipelineDescriptor {
+        &(RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(pipeline_layout),
-            vertex: wgpu::VertexState {
+            vertex: VertexState {
                 module: &vert_shader,
                 entry_point: Some("main"),
                 buffers: vertex_layouts,
                 compilation_options: Default::default(),
             },
-            fragment: Some(wgpu::FragmentState {
+            fragment: Some(FragmentState {
                 module: &frag_shader,
                 entry_point: Some("main"),
                 targets: &[
-                    Some(wgpu::ColorTargetState {
+                    Some(ColorTargetState {
                         format: surface_format,
-                        blend: Some(wgpu::BlendState {
-                            alpha: wgpu::BlendComponent::REPLACE,
-                            color: wgpu::BlendComponent::REPLACE,
+                        blend: Some(BlendState {
+                            alpha: BlendComponent::REPLACE,
+                            color: BlendComponent::REPLACE,
                         }),
-                        write_mask: wgpu::ColorWrites::ALL,
+                        write_mask: ColorWrites::ALL,
                     }),
                 ],
                 compilation_options: Default::default(),
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
+                front_face: FrontFace::Ccw,
                 cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
+                polygon_mode: PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
+            multisample: MultisampleState {
                 count: 1,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
@@ -237,7 +239,7 @@ pub(crate) fn create_render_pipeline(
 
 pub(crate) fn create_glyph_brush(
     device: &Device,
-    surface_format: wgpu::TextureFormat
+    surface_format: TextureFormat
 ) -> wgpu_glyph::GlyphBrush<()> {
     let font = ab_glyph::FontArc::try_from_slice(FONT_BYTES).unwrap();
     wgpu_glyph::GlyphBrushBuilder::using_font(font).build(device, surface_format)
