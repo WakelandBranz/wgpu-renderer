@@ -3,7 +3,52 @@
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use wgpu::Backends;
-use wgpu::{ Adapter, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendComponent, BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, Device, DeviceDescriptor, Features, FragmentState, FrontFace, Instance, InstanceDescriptor, MultisampleState, PipelineLayout, PipelineLayoutDescriptor, PolygonMode, PowerPreference, PrimitiveState, PrimitiveTopology, Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages, Surface, SurfaceConfiguration, TextureFormat, TextureUsages, VertexBufferLayout, VertexState };
+use wgpu::{
+    Adapter,
+    BindGroup,
+    BindGroupDescriptor,
+    BindGroupEntry,
+    BindGroupLayout,
+    BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry,
+    BindingType,
+    BlendComponent,
+    BlendState,
+    Buffer,
+    BufferBindingType,
+    BufferDescriptor,
+    BufferUsages,
+    ColorTargetState,
+    ColorWrites,
+    Device,
+    DeviceDescriptor,
+    Features,
+    FragmentState,
+    FrontFace,
+    Instance,
+    InstanceDescriptor,
+    MultisampleState,
+    PipelineLayout,
+    PipelineLayoutDescriptor,
+    PolygonMode,
+    PowerPreference,
+    PrimitiveState,
+    PrimitiveTopology,
+    Queue,
+    RenderPipeline,
+    RenderPipelineDescriptor,
+    RequestAdapterOptions,
+    ShaderModule,
+    ShaderModuleDescriptor,
+    ShaderSource,
+    ShaderStages,
+    Surface,
+    SurfaceConfiguration,
+    TextureFormat,
+    TextureUsages,
+    VertexBufferLayout,
+    VertexState,
+};
 use wgpu::util::{ BufferInitDescriptor, DeviceExt };
 use wgpu_glyph::ab_glyph;
 use winit::{ dpi::PhysicalSize, window::Window };

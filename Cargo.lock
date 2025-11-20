@@ -3039,7 +3039,6 @@ dependencies = [
  "log",
  "naga 0.20.0",
  "pollster",
- "raw-window-handle",
  "thiserror 2.0.17",
  "wgpu",
  "wgpu_glyph",

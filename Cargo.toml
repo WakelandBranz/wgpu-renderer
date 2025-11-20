@@ -9,7 +9,6 @@ wgpu = "26.0.1"
 wgpu_glyph = { version = "0.26", git = "https://github.com/hecrj/wgpu_glyph.git" }
 thiserror = "2.0.17"
 image = "0.25"
-raw-window-handle = "0.6.2"
 glam = { version = "0.30.9", features = ["mint"] }
 bytemuck = { version = "1.24.0", features = ["derive"] }
 pollster = "0.4"
