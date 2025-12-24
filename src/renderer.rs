@@ -6,6 +6,7 @@ use winit::{dpi::PhysicalSize, window::Window};
 use crate::RenderError;
 use crate::init::*;
 use crate::text::renderer::*;
+use crate::text::types::TextHandle;
 use crate::types::*;
 
 pub struct Renderer {
@@ -68,7 +69,7 @@ impl Renderer {
         );
 
         surface.configure(&device, &config);
-        
+
         let text_renderer = create_text_renderer(&device, &queue, config.format)?;
 
         Ok(Self {
@@ -102,9 +103,23 @@ impl Renderer {
         self.text_renderer.resize(&self.queue, self.config.width, self.config.height);
     }
 
-    pub fn queue_text(&mut self, text: &str, position: (f32, f32), size: f32, color: [f32; 4]) {}
+    // In renderer.rs
 
-    pub fn render_text(&mut self) -> Result<(), wgpu::SurfaceError> {todo!()}
+    pub fn queue_text(&mut self, text: &str, position: (f32, f32), size: f32, color: [f32; 4]) {
+        self.text_renderer.queue_text(text, glam::Vec2::new(position.0, position.1), size, color, None);
+    }
+
+    pub fn create_text(&mut self, text: &str, size: f32) -> TextHandle {
+        self.text_renderer.create_cached_text(text, size)
+    }
+
+    pub fn queue_cached_text(&mut self, handle: TextHandle, position: (f32, f32), color: [f32; 4], scale: f32) {
+        self.text_renderer.queue_cached_text(handle, glam::Vec2::new(position.0, position.1), color, scale);
+    }
+
+    pub fn update_text(&mut self, handle: TextHandle, text: &str) {
+        self.text_renderer.update_cached_text(handle, text, None);
+    }
 
     pub fn queue_rectangle(&mut self, x: f32, y: f32, width: f32, height: f32, color: [f32; 4]) {
         let vertex_offset = self.queued_vertices.len() as u32;
@@ -153,7 +168,7 @@ impl Renderer {
         }
     }
 
-    pub fn begin_frame(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn begin_frame(&mut self) -> Result<(), RenderError> {
         self.surface.get_current_texture()?;
         Ok(())
     }
@@ -187,7 +202,7 @@ impl Renderer {
         render_pass.draw_indexed(0..num_indices, 0, 0..1);
     }
 
-    pub fn render_frame(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn render_frame(&mut self) -> Result<(), RenderError> {
         match self.surface.get_current_texture() {
             Ok(frame) => {
                 let view = frame.texture.create_view(&Default::default());
@@ -248,8 +263,36 @@ impl Renderer {
                     }
                 }
 
-                // Render text on top - TODO!
-                
+                // Prepare text (upload glyphs to atlas)
+                self.text_renderer.prepare(&self.device, &self.queue)?;
+
+                // Render text on top
+                {
+                    let mut render_pass = encoder.begin_render_pass(
+                        &(wgpu::RenderPassDescriptor {
+                            label: Some("Text Render Pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,  // Keep shapes!
+                                    store: wgpu::StoreOp::Store,
+                                },
+                                depth_slice: None,
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                            multiview_mask: None,
+                        }),
+                    );
+
+                    self.text_renderer.render(&mut render_pass)?;
+                }
+
+                // After submit, clear text buffers
+                self.text_renderer.clear_frame();
+
                 self.queue.submit(iter::once(encoder.finish()));
                 frame.present();
 
@@ -259,7 +302,7 @@ impl Renderer {
 
                 Ok(())
             }
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
 }

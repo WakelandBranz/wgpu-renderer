@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::text::error::TextError;
+
 #[derive(Error, Debug)]
 pub enum RenderError {
     // === Initialization Errors ===
@@ -33,15 +35,9 @@ pub enum RenderError {
     #[error("Texture size exceeded: requested {width}x{height}, maximum dimension is {max}")]
     TextureSizeExceeded { width: u32, height: u32, max: u32 },
 
-    // === Text Rendering Errors ===
-    #[error("Text prepare error: {0}")]
-    TextPrepare(#[from] glyphon::PrepareError),
-
-    #[error("Text render error: {0}")]
-    TextRender(#[from] glyphon::RenderError),
-
-    #[error("Failed to load font: {0}")]
-    FontLoad(String),
+    // === Extra stuff!?!?!?! ===
+    #[error("--- Text error ---\n{0}")]
+    TextError(#[from] TextError)
 }
 
 impl RenderError {

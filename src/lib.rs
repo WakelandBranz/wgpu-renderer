@@ -7,3 +7,5 @@ pub mod types;
 pub use error::RenderError;
 pub use renderer::Renderer;
 pub use types::*;
+
+use crate::text::types::TextHandle;

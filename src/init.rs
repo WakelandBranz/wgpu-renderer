@@ -252,10 +252,10 @@ pub(crate) fn create_text_renderer(
     queue: &wgpu::Queue,
     swapchain_format: TextureFormat,
 ) -> Result<TextRenderer, RenderError> {
-    let (color_mode, swapchain_format) = if swapchain_format.is_srgb() {
-        (ColorMode::Web, TextureFormat::Bgra8Unorm)
+    let color_mode = if swapchain_format.is_srgb() {
+        ColorMode::Web
     } else {
-        (ColorMode::Accurate, TextureFormat::Bgra8UnormSrgb)
+        ColorMode::Accurate
     };
 
     TextRenderer::new(device, queue, swapchain_format, color_mode)

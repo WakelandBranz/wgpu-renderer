@@ -82,7 +82,8 @@ impl ApplicationHandler for RenderApp {
                     renderer.queue_circle(600.0, 150.0, 40.0, [0.0, 0.0, 1.0, 1.0]);
 
                     // Queue text
-                    renderer.queue_text("Hello, WGPU!", (100.0, 300.0), 32.0, [1.0, 1.0, 1.0, 1.0]);
+                    let hello_text = renderer.create_text("Hello, WGPU!", 32.0);
+                    renderer.queue_cached_text(hello_text, (100.0, 300.0), [1.0, 1.0, 1.0, 1.0], 1.0);
                     renderer.queue_text("Rectangle | Square | Circle", (350.0, 350.0), 16.0, [1.0, 1.0, 0.0, 1.0]);
 
                     // Render frame (which includes shapes and text)
