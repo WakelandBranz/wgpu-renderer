@@ -51,7 +51,7 @@ impl ApplicationHandler for RenderApp {
             );
 
             let size = window.inner_size();
-            let renderer = pollster::block_on(Renderer::new(window.clone(), size));
+            let renderer = pollster::block_on(Renderer::new(window.clone(), size)).unwrap();
 
             window.request_redraw();
             self.window = Some(window);

@@ -1,4 +1,4 @@
-use wgpu::{ BufferAddress, VertexBufferLayout, VertexStepMode };
+use wgpu::{BufferAddress, VertexBufferLayout, VertexStepMode};
 
 pub const U32_SIZE: BufferAddress = std::mem::size_of::<u32>() as BufferAddress;
 
@@ -41,29 +41,24 @@ impl Vertex {
 
 pub const UNBOUNDED_F32: f32 = std::f32::INFINITY;
 
+// TODO! Rename? Might not need to but this might be too all-encompassing if I make a UI system
 #[derive(Debug)]
 pub struct Text {
-    pub position: glam::Vec2<>,
-    pub bounds: glam::Vec2<>,
-    pub color: glam::Vec4<>,
     pub text: String,
+    pub position: glam::Vec2,
     pub size: f32,
-    pub visible: bool,
-    pub focused: bool,
-    pub centered: bool,
+    pub color: glam::Vec4,
+    pub bounds: Option<glyphon::TextBounds>,
 }
 
 impl Default for Text {
     fn default() -> Self {
         Self {
-            position: (0.0, 0.0).into(),
-            bounds: (UNBOUNDED_F32, UNBOUNDED_F32).into(),
-            color: (1.0, 1.0, 1.0, 1.0).into(),
             text: String::new(),
+            position: (0.0, 0.0).into(),
             size: 16.0,
-            visible: false,
-            focused: false,
-            centered: false,
+            color: (1.0, 1.0, 1.0, 1.0).into(),
+            bounds: None,
         }
     }
 }

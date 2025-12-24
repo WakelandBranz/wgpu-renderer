@@ -1,7 +1,8 @@
 pub mod error;
-pub mod renderer;
-pub mod types;
 pub(crate) mod init;
+pub mod renderer;
+pub(crate) mod text;
+pub mod types;
 
 pub use error::RenderError;
 pub use renderer::Renderer;
