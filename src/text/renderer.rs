@@ -1,8 +1,7 @@
 use std::f32;
 
 use glyphon::{
-    cosmic_text::skrifa::color, Attrs, Cache, FontSystem, Metrics, Resolution, SwashCache,
-    TextAtlas, Viewport,
+    Attrs, Cache, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextAtlas, Viewport,
 };
 use wgpu::MultisampleState;
 
@@ -13,8 +12,6 @@ use crate::{
     },
     RenderError,
 };
-
-const FONT_BYTES: &[u8] = include_bytes!("../../res/fonts/PressStart2P-Regular.ttf");
 
 pub(crate) struct TextRenderer {
     // Glyphon infrastructure
@@ -38,7 +35,7 @@ impl TextRenderer {
         swapchain_format: wgpu::TextureFormat,
         color_mode: glyphon::ColorMode,
     ) -> Result<Self, RenderError> {
-        let mut font_system = FontSystem::new();
+        let font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
         let cache = Cache::new(&device);
         let viewport = Viewport::new(device, &cache);
@@ -48,8 +45,6 @@ impl TextRenderer {
             TextAtlas::with_color_mode(device, queue, &cache, swapchain_format, color_mode);
         let renderer =
             glyphon::TextRenderer::new(&mut atlas, device, MultisampleState::default(), None);
-
-        font_system.db_mut().load_font_data(FONT_BYTES.to_vec());
 
         Ok(TextRenderer {
             font_system,
@@ -71,13 +66,31 @@ impl TextRenderer {
         println!("resized text renderer")
     }
 
-    /// Loads a .ttf file from a specific path
-    pub fn load_font_from_path(&mut self, path: &str) -> bool {
-        todo!()
+    /// Loads a .ttf file from a relative path
+    pub(crate) fn load_font_from_path(&mut self, path: &std::path::Path) -> Result<(), TextError> {
+        self.font_system
+            .db_mut()
+            .load_font_file(path)
+            .map_err(TextError::FontLoad)?;
+        Ok(())
+    }
+
+    pub(crate) fn load_font_from_bytes(&mut self, bytes: Vec<u8>) -> Result<(), TextError> {
+        self.font_system.db_mut().load_font_data(bytes);
+        Ok(())
     }
 
     // TODO: Implement line height enum
-    fn create_buffer(&mut self, text: &str, size: f32) -> glyphon::Buffer {
+    pub(crate) fn create_buffer(
+        &mut self,
+        text: &str,
+        size: f32,
+        font_family: Option<&str>,
+    ) -> glyphon::Buffer {
+        let family = match font_family {
+            Some(f) => Family::Name(f),
+            None => Family::SansSerif,
+        };
         let mut buffer =
             glyphon::Buffer::new(&mut self.font_system, Metrics::new(size, size * 1.2));
         buffer.set_size(
@@ -88,8 +101,8 @@ impl TextRenderer {
         buffer.set_text(
             &mut self.font_system,
             text,
-            &Attrs::new(),
-            glyphon::Shaping::Advanced,
+            &Attrs::new().family(family),
+            Shaping::Advanced,
             None,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
@@ -98,15 +111,16 @@ impl TextRenderer {
 
     /// Immediate mode
     /// Best for rendering text that does not persist and updates constantly
-    pub fn queue_text(
+    pub(crate) fn queue_text(
         &mut self,
         text: &str,
         pos: glam::Vec2,
         size: f32,
         color: [f32; 4],
         scale: Option<f32>,
+        font_family: Option<&str>, // Defaults to Sans Serif
     ) {
-        let buffer = self.create_buffer(text, size);
+        let buffer = self.create_buffer(text, size, font_family);
         let index = self.immediate_buffers.len();
         self.immediate_buffers.push(buffer);
         self.queued_renders.push(QueuedText {
@@ -121,8 +135,13 @@ impl TextRenderer {
     /// Cached mode
     /// Create text to cache and render later
     /// MUST EXPLICITLY QUEUE THE PROVIDED HANDLE TO RENDER!
-    pub fn create_cached_text(&mut self, text: &str, size: f32) -> TextHandle {
-        let buffer = self.create_buffer(text, size);
+    pub(crate) fn create_cached_text(
+        &mut self,
+        text: &str,
+        size: f32,
+        font_family: Option<&str>,
+    ) -> TextHandle {
+        let buffer = self.create_buffer(text, size, font_family);
         let index = self.cached_buffers.len();
         self.cached_buffers.push(CachedTextEntry { buffer, size });
         TextHandle(index)
@@ -130,7 +149,7 @@ impl TextRenderer {
 
     /// Cached mode
     /// Best for rendering text that is mostly static (UI text)
-    pub fn queue_cached_text(
+    pub(crate) fn queue_cached_text(
         &mut self,
         text_handle: TextHandle,
         pos: glam::Vec2,
@@ -147,7 +166,7 @@ impl TextRenderer {
     }
 
     /// Modify cached text to re-render
-    pub fn update_cached_text(
+    pub(crate) fn update_cached_text(
         &mut self,
         text_handle: TextHandle,
         new_text: &str,
@@ -176,7 +195,11 @@ impl TextRenderer {
         }
     }
 
-    pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<(), TextError> {
+    pub(crate) fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<(), TextError> {
         let text_areas: Vec<glyphon::TextArea> = self
             .queued_renders
             .iter()
@@ -231,6 +254,7 @@ impl TextRenderer {
     }
 }
 
+/// Converts to a glyphon::Color struct
 fn convert_color(color: [f32; 4]) -> glyphon::Color {
     glyphon::Color::rgba(
         (color[0] * 255.0) as u8,

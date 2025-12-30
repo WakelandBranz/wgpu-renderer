@@ -103,7 +103,7 @@ impl Renderer {
         self.text_renderer.resize(&self.queue, self.config.width, self.config.height);
     }
 
-    // In renderer.rs
+    // === TEXT RENDERING ===
 
     pub fn queue_text(&mut self, text: &str, position: (f32, f32), size: f32, color: [f32; 4]) {
         self.text_renderer.queue_text(text, glam::Vec2::new(position.0, position.1), size, color, None);
@@ -120,6 +120,16 @@ impl Renderer {
     pub fn update_text(&mut self, handle: TextHandle, text: &str) {
         self.text_renderer.update_cached_text(handle, text, None);
     }
+
+    pub fn load_font_from_path(&mut self, path: &std::path::Path) -> Result<(), RenderError> {
+        Ok(self.text_renderer.load_font_from_path(path)?)
+    }
+
+    pub fn load_font_from_bytes(&mut self, bytes: Vec<u8>) -> Result<(), RenderError> {
+        Ok(self.text_renderer.load_font_from_bytes(bytes)?)
+    }
+
+    // === PRIMITIVE SHAPE RENDERING ===
 
     pub fn queue_rectangle(&mut self, x: f32, y: f32, width: f32, height: f32, color: [f32; 4]) {
         let vertex_offset = self.queued_vertices.len() as u32;

@@ -13,5 +13,5 @@ pub enum TextError {
     TextRender(#[from] glyphon::RenderError),
 
     #[error("Failed to load font: {0}")]
-    FontLoad(String),
+    FontLoad(std::io::Error),
 }

@@ -8,6 +8,8 @@ use winit::{
     window::WindowAttributes,
 };
 
+const FONT_BYTES: &[u8] = include_bytes!("../../res/fonts/PressStart2P-Regular.ttf");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
