@@ -8,7 +8,7 @@ use wgpu::MultisampleState;
 use crate::{
     text::{
         error::TextError,
-        types::{BufferRef, CachedTextEntry, QueuedText, TextHandle},
+        types::{BufferRef, CachedTextEntry, FontHandle, QueuedText, TextHandle},
     },
     RenderError,
 };
@@ -26,6 +26,8 @@ pub(crate) struct TextRenderer {
     cached_buffers: Vec<CachedTextEntry>, // Persists across many frames
     immediate_buffers: Vec<glyphon::Buffer>, // Cleared each frame
     queued_renders: Vec<QueuedText>,      // Cleared each frame
+
+    default_font: FontHandle,
 }
 
 impl TextRenderer {
@@ -39,12 +41,25 @@ impl TextRenderer {
         let swash_cache = SwashCache::new();
         let cache = Cache::new(&device);
         let viewport = Viewport::new(device, &cache);
-        println!("color_mode: {:?}", color_mode);
-        println!("swapchain_format: {:?}", swapchain_format);
+        tracing::debug!("color_mode: {:?}", color_mode);
+        tracing::debug!("swapchain_format: {:?}", swapchain_format);
         let mut atlas =
             TextAtlas::with_color_mode(device, queue, &cache, swapchain_format, color_mode);
         let renderer =
             glyphon::TextRenderer::new(&mut atlas, device, MultisampleState::default(), None);
+
+        // Load system fonts and set a default
+        let default_font = font_system
+            .db()
+            .faces()
+            .next()
+            .map(FontHandle::from)
+            .ok_or_else(|| RenderError::TextError(TextError::FontNotFound))?;
+
+        tracing::debug!(
+            "Loaded default system font: {}",
+            default_font.display_name()
+        );
 
         Ok(TextRenderer {
             font_system,
@@ -57,27 +72,55 @@ impl TextRenderer {
             cached_buffers: Vec::new(),
             immediate_buffers: Vec::new(),
             queued_renders: Vec::new(),
+
+            default_font,
         })
     }
 
     pub(crate) fn resize(&mut self, queue: &wgpu::Queue, width: u32, height: u32) {
         let resolution = Resolution { width, height };
         self.viewport.update(queue, resolution);
-        println!("resized text renderer")
+        tracing::trace!("resized text renderer")
     }
 
     /// Loads a .ttf file from a relative path
-    pub(crate) fn load_font_from_path(&mut self, path: &std::path::Path) -> Result<(), TextError> {
+    pub(crate) fn load_ttf_font_from_path(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<FontHandle, TextError> {
         self.font_system
             .db_mut()
             .load_font_file(path)
             .map_err(TextError::FontLoad)?;
-        Ok(())
+
+        let font: FontHandle = self
+            .font_system
+            .db()
+            .faces()
+            .last()
+            .ok_or(TextError::FontNotFound)?
+            .into();
+        Ok(font)
     }
 
-    pub(crate) fn load_font_from_bytes(&mut self, bytes: Vec<u8>) -> Result<(), TextError> {
+    /// Loads a .ttf file from loaded bytes
+    pub(crate) fn load_ttf_font_from_bytes(
+        &mut self,
+        bytes: Vec<u8>,
+    ) -> Result<FontHandle, TextError> {
         self.font_system.db_mut().load_font_data(bytes);
-        Ok(())
+        let font: FontHandle = self
+            .font_system
+            .db()
+            .faces()
+            .last()
+            .ok_or(TextError::FontNotFound)?
+            .into();
+        Ok(font)
+    }
+
+    pub(crate) fn set_default_font(&mut self, font: FontHandle) {
+        self.default_font = font
     }
 
     // TODO: Implement line height enum
@@ -85,11 +128,12 @@ impl TextRenderer {
         &mut self,
         text: &str,
         size: f32,
-        font_family: Option<&str>,
+        font: Option<&FontHandle>,
     ) -> glyphon::Buffer {
-        let family = match font_family {
-            Some(f) => Family::Name(f),
-            None => Family::SansSerif,
+        let family = if let Some(family) = font {
+            Family::Name(&family.family_name)
+        } else {
+            Family::Name(&self.default_font.family_name)
         };
         let mut buffer =
             glyphon::Buffer::new(&mut self.font_system, Metrics::new(size, size * 1.2));
@@ -118,9 +162,31 @@ impl TextRenderer {
         size: f32,
         color: [f32; 4],
         scale: Option<f32>,
-        font_family: Option<&str>, // Defaults to Sans Serif
     ) {
-        let buffer = self.create_buffer(text, size, font_family);
+        let buffer = self.create_buffer(text, size, None);
+        let index = self.immediate_buffers.len();
+        self.immediate_buffers.push(buffer);
+        self.queued_renders.push(QueuedText {
+            buffer_ref: BufferRef::Immediate(index),
+            position: pos,
+            color: convert_color(color),
+            scale: scale.unwrap_or(1.0),
+            bounds: None, // CHANGE IN THE FUTURE!?!?!?!
+        });
+    }
+
+    /// Immediate mode
+    /// Best for rendering text that does not persist and updates constantly
+    pub(crate) fn queue_text_ex(
+        &mut self,
+        text: &str,
+        pos: glam::Vec2,
+        size: f32,
+        color: [f32; 4],
+        scale: Option<f32>,
+        font: Option<&FontHandle>,
+    ) {
+        let buffer = self.create_buffer(text, size, font);
         let index = self.immediate_buffers.len();
         self.immediate_buffers.push(buffer);
         self.queued_renders.push(QueuedText {
@@ -135,13 +201,23 @@ impl TextRenderer {
     /// Cached mode
     /// Create text to cache and render later
     /// MUST EXPLICITLY QUEUE THE PROVIDED HANDLE TO RENDER!
-    pub(crate) fn create_cached_text(
+    pub(crate) fn create_cached_text(&mut self, text: &str, size: f32) -> TextHandle {
+        let buffer = self.create_buffer(text, size, None);
+        let index = self.cached_buffers.len();
+        self.cached_buffers.push(CachedTextEntry { buffer, size });
+        TextHandle(index)
+    }
+
+    /// Cached mode
+    /// Create text to cache and render later
+    /// MUST EXPLICITLY QUEUE THE PROVIDED HANDLE TO RENDER!
+    pub(crate) fn create_cached_text_ex(
         &mut self,
         text: &str,
         size: f32,
-        font_family: Option<&str>,
+        font: Option<&FontHandle>,
     ) -> TextHandle {
-        let buffer = self.create_buffer(text, size, font_family);
+        let buffer = self.create_buffer(text, size, font);
         let index = self.cached_buffers.len();
         self.cached_buffers.push(CachedTextEntry { buffer, size });
         TextHandle(index)
@@ -171,6 +247,7 @@ impl TextRenderer {
         text_handle: TextHandle,
         new_text: &str,
         new_size: Option<f32>,
+        new_font: Option<&FontHandle>,
     ) {
         // TODO: Rewrite this function to take in advanced attributes
         if let Some(entry) = self.cached_buffers.get_mut(text_handle.0) {
@@ -182,11 +259,18 @@ impl TextRenderer {
                     None,
                 );
             }
+
+            let family = if let Some(family) = new_font {
+                Family::Name(&family.family_name)
+            } else {
+                Family::Name(&self.default_font.family_name)
+            };
+
             entry.buffer.set_text(
                 &mut self.font_system,
                 new_text,
-                &glyphon::Attrs::new(),
-                glyphon::Shaping::Advanced,
+                &Attrs::new().family(family),
+                Shaping::Advanced,
                 None,
             );
             entry

@@ -14,4 +14,7 @@ pub enum TextError {
 
     #[error("Failed to load font: {0}")]
     FontLoad(std::io::Error),
+    
+    #[error("Failed to load font: no valid font faces found")]
+    FontNotFound,
 }

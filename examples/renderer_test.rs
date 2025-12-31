@@ -11,7 +11,9 @@ use winit::{
 const FONT_BYTES: &[u8] = include_bytes!("../../res/fonts/PressStart2P-Regular.ttf");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    tracing_subscriber::fmt()
+            .with_env_filter("my_engine=debug,wgpu=warn")
+            .init();
 
     let event_loop = EventLoop::new()?;
     let mut app = RenderApp::new();
