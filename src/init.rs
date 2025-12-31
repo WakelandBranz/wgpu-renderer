@@ -85,11 +85,14 @@ pub(crate) fn create_surface_config(
         .or_else(|| surface_caps.formats.first().copied())
         .ok_or(RenderError::NoSurfaceFormat)?;
 
+    tracing::debug!("Surface Configuration Present Modes: {:?}", surface_caps);
+    
     Ok(SurfaceConfiguration {
         usage: TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
         width: size.width,
         height: size.height,
+        // TODO: Allow the user to select present mode (disable vsync, fifo, bla)
         present_mode: surface_caps.present_modes[0],
         alpha_mode: surface_caps.alpha_modes[0],
         view_formats: vec![],
