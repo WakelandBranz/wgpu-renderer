@@ -2,18 +2,14 @@ use std::sync::Arc;
 
 use wgpu_renderer::renderer::Renderer;
 use winit::{
-    application::ApplicationHandler,
-    event::WindowEvent,
-    event_loop::EventLoop,
+    application::ApplicationHandler, event::WindowEvent, event_loop::EventLoop,
     window::WindowAttributes,
 };
 
-const FONT_BYTES: &[u8] = include_bytes!("../../res/fonts/PressStart2P-Regular.ttf");
+const FONT_BYTES: &[u8] = include_bytes!("../res/fonts/PressStart2P-Regular.ttf");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-            .with_env_filter("my_engine=debug,wgpu=warn")
-            .init();
+    tracing_subscriber::fmt().init();
 
     let event_loop = EventLoop::new()?;
     let mut app = RenderApp::new();
@@ -55,8 +51,12 @@ impl ApplicationHandler for RenderApp {
             );
 
             let size = window.inner_size();
-            let renderer = pollster::block_on(Renderer::new(window.clone(), size)).unwrap();
+            let mut renderer = pollster::block_on(Renderer::new(window.clone(), size)).unwrap();
 
+            //let video_game_awesome_font = renderer.load_ttf_font_from_path(std::path::Path::new("../res/fonts/PressStart2P-Regular.ttf")).unwrap();
+            let video_game_awesome_font = renderer.load_ttf_font_from_bytes(FONT_BYTES.into()).unwrap();
+            renderer.set_default_font(video_game_awesome_font);
+            
             window.request_redraw();
             self.window = Some(window);
             self.renderer = Some(renderer);
@@ -86,9 +86,19 @@ impl ApplicationHandler for RenderApp {
                     renderer.queue_circle(600.0, 150.0, 40.0, [0.0, 0.0, 1.0, 1.0]);
 
                     // Queue text
-                    let hello_text = renderer.create_text("Hello, WGPU!", 32.0);
-                    renderer.queue_cached_text(hello_text, (100.0, 300.0), [1.0, 1.0, 1.0, 1.0], 1.0);
-                    renderer.queue_text("Rectangle | Square | Circle", (350.0, 350.0), 16.0, [1.0, 1.0, 0.0, 1.0]);
+                    let hello_text = renderer.create_cached_text("Hello, WGPU!", 32.0);
+                    renderer.queue_cached_text(
+                        hello_text,
+                        (100.0, 300.0),
+                        [1.0, 1.0, 1.0, 1.0],
+                        1.0,
+                    );
+                    renderer.queue_text(
+                        "Rectangle | Square | Circle",
+                        (350.0, 350.0),
+                        16.0,
+                        [1.0, 1.0, 0.0, 1.0],
+                    );
 
                     // Render frame (which includes shapes and text)
                     let _ = renderer.render_frame();
@@ -101,5 +111,4 @@ impl ApplicationHandler for RenderApp {
             _ => {}
         }
     }
-
 }

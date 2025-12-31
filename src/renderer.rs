@@ -1,11 +1,11 @@
 use std::{iter, sync::Arc};
 
-use wgpu::{BindGroup, Buffer};
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::RenderError;
 use crate::init::*;
 use crate::text::renderer::*;
+use crate::text::types::FontHandle;
 use crate::text::types::TextHandle;
 use crate::types::*;
 
@@ -38,7 +38,7 @@ impl Renderer {
         window: Arc<Window>,
         size: PhysicalSize<u32>,
     ) -> Result<Renderer, RenderError> {
-        log::warn!("size: {:?}", size);
+        tracing::debug!("size: {:?}", size);
 
         // Create core wgpu components
         let instance = create_instance();
@@ -109,24 +109,42 @@ impl Renderer {
         self.text_renderer.queue_text(text, glam::Vec2::new(position.0, position.1), size, color, None);
     }
 
-    pub fn create_text(&mut self, text: &str, size: f32) -> TextHandle {
+    pub fn queue_text_ex(&mut self, text: &str, position: (f32, f32), size: f32, color: [f32; 4], scale: Option<f32>, font: Option<&FontHandle>,) {
+        self.text_renderer.queue_text_ex(text, glam::Vec2::new(position.0, position.1), size, color, scale, font);
+    }
+
+    pub fn create_cached_text(&mut self, text: &str, size: f32) -> TextHandle {
         self.text_renderer.create_cached_text(text, size)
+    }
+
+    pub fn create_cached_text_ex(&mut self, text: &str, size: f32, font: Option<&FontHandle>) -> TextHandle {
+        self.text_renderer.create_cached_text_ex(text, size, font)
     }
 
     pub fn queue_cached_text(&mut self, handle: TextHandle, position: (f32, f32), color: [f32; 4], scale: f32) {
         self.text_renderer.queue_cached_text(handle, glam::Vec2::new(position.0, position.1), color, scale);
     }
 
-    pub fn update_text(&mut self, handle: TextHandle, text: &str) {
-        self.text_renderer.update_cached_text(handle, text, None);
+    pub fn update_cached_text(
+        &mut self,
+        text_handle: TextHandle,
+        new_text: &str,
+        new_size: Option<f32>,
+        new_font: Option<&FontHandle>,
+    ) {
+        self.text_renderer.update_cached_text(text_handle, new_text, new_size, new_font);
     }
 
-    pub fn load_font_from_path(&mut self, path: &std::path::Path) -> Result<(), RenderError> {
-        Ok(self.text_renderer.load_font_from_path(path)?)
+    pub fn load_ttf_font_from_path(&mut self, path: &std::path::Path) -> Result<FontHandle, RenderError> {
+        Ok(self.text_renderer.load_ttf_font_from_path(path)?)
     }
 
-    pub fn load_font_from_bytes(&mut self, bytes: Vec<u8>) -> Result<(), RenderError> {
-        Ok(self.text_renderer.load_font_from_bytes(bytes)?)
+    pub fn load_ttf_font_from_bytes(&mut self, bytes: Vec<u8>) -> Result<FontHandle, RenderError> {
+        Ok(self.text_renderer.load_ttf_font_from_bytes(bytes)?)
+    }
+    
+    pub fn set_default_font(&mut self, font: FontHandle) {
+        self.text_renderer.set_default_font(font)
     }
 
     // === PRIMITIVE SHAPE RENDERING ===
