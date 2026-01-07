@@ -8,4 +8,4 @@ pub use error::RenderError;
 pub use renderer::Renderer;
 pub use types::*;
 
-use crate::text::types::TextHandle;
+pub use crate::text::types::TextHandle;
