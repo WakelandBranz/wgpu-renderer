@@ -38,27 +38,3 @@ impl Vertex {
         ],
     };
 }
-
-pub const UNBOUNDED_F32: f32 = std::f32::INFINITY;
-
-// TODO! Rename? Might not need to but this might be too all-encompassing if I make a UI system
-#[derive(Debug)]
-pub struct Text {
-    pub text: String,
-    pub position: glam::Vec2,
-    pub size: f32,
-    pub color: glam::Vec4,
-    pub bounds: Option<glyphon::TextBounds>,
-}
-
-impl Default for Text {
-    fn default() -> Self {
-        Self {
-            text: String::new(),
-            position: (0.0, 0.0).into(),
-            size: 16.0,
-            color: (1.0, 1.0, 1.0, 1.0).into(),
-            bounds: None,
-        }
-    }
-}

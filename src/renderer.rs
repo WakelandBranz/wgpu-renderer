@@ -142,7 +142,7 @@ impl Renderer {
     pub fn load_ttf_font_from_bytes(&mut self, bytes: Vec<u8>) -> Result<FontHandle, RenderError> {
         Ok(self.text_renderer.load_ttf_font_from_bytes(bytes)?)
     }
-    
+
     pub fn set_default_font(&mut self, font: FontHandle) {
         self.text_renderer.set_default_font(font)
     }

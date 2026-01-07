@@ -1,5 +1,3 @@
-use std::f32;
-
 use glyphon::{
     Attrs, Cache, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextAtlas, Viewport,
 };
