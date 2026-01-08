@@ -6,14 +6,7 @@ use std::sync::Arc;
 use wgpu::Backends;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    Adapter, BindGroup,BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendComponent, BlendState,
-    Buffer, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites,
-    Device, DeviceDescriptor, Features, FragmentState, FrontFace, Instance, InstanceDescriptor,
-    MultisampleState, PipelineLayout, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
-    PrimitiveState, PrimitiveTopology, Queue, RenderPipeline, RenderPipelineDescriptor,
-    RequestAdapterOptions, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages,
-    Surface, SurfaceConfiguration, TextureFormat, TextureUsages, VertexBufferLayout, VertexState,
+    Adapter, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendComponent, BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, Device, DeviceDescriptor, Features, FragmentState, FrontFace, Instance, InstanceDescriptor, MultisampleState, PipelineLayout, PipelineLayoutDescriptor, PolygonMode, PowerPreference, PrimitiveState, PrimitiveTopology, Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions, Sampler, SamplerBindingType, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages, Surface, SurfaceConfiguration, TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDimension, VertexBufferLayout, VertexState
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -21,7 +14,7 @@ use crate::RenderError;
 use crate::text::renderer::TextRenderer;
 use crate::types::{U32_SIZE, Vertex};
 
-pub(crate) fn create_instance() ->Instance {
+pub(crate) fn create_instance() -> Instance {
     Instance::new(
         &(InstanceDescriptor {
             #[cfg(not(target_arch = "wasm32"))]
@@ -97,7 +90,7 @@ pub(crate) fn create_surface_config(
     })
 }
 
-pub(crate) fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
+pub(crate) fn create_screen_size_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(
         &(BindGroupLayoutDescriptor {
             label: Some("Screen Size BGL"),
@@ -115,14 +108,63 @@ pub(crate) fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
     )
 }
 
-pub(crate) fn create_pipeline_layout(
+pub(crate) fn create_camera_bind_group_layout(device: &Device) -> BindGroupLayout {
+    device.create_bind_group_layout(
+        &(BindGroupLayoutDescriptor {
+            label: Some("Camera BGL"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        }),
+    )
+}
+
+/// Thank you egor https://github.com/wick3dr0se/egor/blob/main/crates/egor_render/src/pipeline.rs#L72
+/// Creates the bind group layout for texture sampling
+///
+/// Defines two bindings:
+/// - Binding 0: 2D texture (fragment shader)
+/// - Binding 1: Sampler (fragment shader)
+pub(crate) fn create_texture_bind_group_layout(device: &Device) -> BindGroupLayout {
+    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label: Some("Texture Bind Group Layout"),
+        entries: &[
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    })
+}
+
+pub(crate) fn create_pipeline_layout<S: AsRef<str>>(
     device: &Device,
-    bind_group_layout: &BindGroupLayout,
+    label: S,
+    bind_group_layouts: &[&BindGroupLayout],
 ) -> PipelineLayout {
     device.create_pipeline_layout(
         &(PipelineLayoutDescriptor {
-            label: Some("Pipeline Layout"),
-            bind_group_layouts: &[bind_group_layout],
+            label: Some(label.as_ref()),
+            bind_group_layouts: bind_group_layouts,
             immediate_size: 0,
         }),
     )
@@ -178,7 +220,7 @@ pub(crate) fn create_vertex_and_index_buffers(device: &Device) -> (Buffer, Buffe
     (vertex_buffer, index_buffer)
 }
 
-pub(crate) fn create_bind_group(
+pub(crate) fn create_screen_size_bind_group(
     device: &Device,
     bind_group_layout: &BindGroupLayout,
     screen_size_buffer: &Buffer,
@@ -195,8 +237,49 @@ pub(crate) fn create_bind_group(
     )
 }
 
-pub(crate) fn create_render_pipeline(
+pub(crate) fn create_camera_bind_group(
     device: &Device,
+    bind_group_layout: &BindGroupLayout,
+    camera_buffer: &Buffer,
+) -> BindGroup {
+    device.create_bind_group(
+        &(BindGroupDescriptor {
+            label: Some("Camera BG"),
+            layout: bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+        }),
+    )
+}
+
+pub(crate) fn create_texture_bind_group(
+    device: &Device,
+    bind_group_layout: &BindGroupLayout,
+    texture_view: &TextureView,
+    sampler: &Sampler
+) -> BindGroup {
+    device.create_bind_group(
+        &(BindGroupDescriptor {
+            label: Some("Texture BG"),
+            layout: bind_group_layout,
+            entries:
+            &[BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(texture_view),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            }],
+        }),
+    )
+}
+
+pub(crate) fn create_render_pipeline<S: AsRef<str>>(
+    device: &Device,
+    label: S,
     pipeline_layout: &PipelineLayout,
     surface_format: TextureFormat,
     vertex_layouts: &[VertexBufferLayout],
@@ -205,7 +288,7 @@ pub(crate) fn create_render_pipeline(
 ) -> RenderPipeline {
     device.create_render_pipeline(
         &(RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
+            label: Some(label.as_ref()),
             layout: Some(pipeline_layout),
             vertex: VertexState {
                 module: &vert_shader,

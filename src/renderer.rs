@@ -8,13 +8,14 @@ use crate::text::renderer::*;
 use crate::text::types::FontHandle;
 use crate::text::types::TextHandle;
 use crate::types::*;
+use crate::pipeline::Pipelines;
 
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    pipeline: wgpu::RenderPipeline,
+    pipelines: Pipelines,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     text_renderer: TextRenderer,
@@ -34,6 +35,10 @@ impl Renderer {
         self.config.height as f32
     }
 
+    pub fn dimensions(&self) -> (f32, f32) {
+        (self.config.width as f32, self.config.height as f32)
+    }
+
     pub async fn new(
         window: Arc<Window>,
         size: PhysicalSize<u32>,
@@ -49,24 +54,17 @@ impl Renderer {
 
         let config = create_surface_config(&surface, &adapter, size)?;
 
-        let bind_group_layout = create_bind_group_layout(&device);
-        let pipeline_layout = create_pipeline_layout(&device, &bind_group_layout);
-
-        let (vert_shader, frag_shader) = create_shader_modules(&device);
+        let pipelines = Pipelines::init(&device, config.format, &[Vertex::DESC]);
+        
+        let screen_size_buffer = create_screen_size_buffer(&device, size);
+        let bind_group = create_screen_size_bind_group(
+            &device,
+            &pipelines.screen_size_bind_group_layout,
+            &screen_size_buffer,
+        );
 
         let screen_size_buffer = create_screen_size_buffer(&device, size);
         let (vertex_buffer, index_buffer) = create_vertex_and_index_buffers(&device);
-
-        let bind_group = create_bind_group(&device, &bind_group_layout, &screen_size_buffer);
-
-        let pipeline = create_render_pipeline(
-            &device,
-            &pipeline_layout,
-            config.format,
-            &[Vertex::DESC],
-            vert_shader,
-            frag_shader,
-        );
 
         surface.configure(&device, &config);
 
@@ -77,7 +75,7 @@ impl Renderer {
             device,
             queue,
             config,
-            pipeline,
+            pipelines,
             vertex_buffer,
             index_buffer,
             text_renderer,
@@ -100,29 +98,74 @@ impl Renderer {
             bytemuck::cast_slice(&[size.width as f32, size.height as f32]),
         );
         self.surface.configure(&self.device, &self.config);
-        self.text_renderer.resize(&self.queue, self.config.width, self.config.height);
+        self.text_renderer
+            .resize(&self.queue, self.config.width, self.config.height);
     }
 
     // === TEXT RENDERING ===
 
-    pub fn queue_text<S: AsRef<str>>(&mut self, text: S, position: (f32, f32), size: f32, color: [f32; 4]) {
-        self.text_renderer.queue_text(text.as_ref(), glam::Vec2::new(position.0, position.1), size, color, None);
+    pub fn queue_text<S: AsRef<str>>(
+        &mut self,
+        text: S,
+        position: (f32, f32),
+        size: f32,
+        color: [f32; 4],
+    ) {
+        self.text_renderer.queue_text(
+            text.as_ref(),
+            glam::Vec2::new(position.0, position.1),
+            size,
+            color,
+            None,
+        );
     }
 
-    pub fn queue_text_ex<S: AsRef<str>>(&mut self, text: S, position: (f32, f32), size: f32, color: [f32; 4], scale: Option<f32>, font: Option<&FontHandle>,) {
-        self.text_renderer.queue_text_ex(text.as_ref(), glam::Vec2::new(position.0, position.1), size, color, scale, font);
+    pub fn queue_text_ex<S: AsRef<str>>(
+        &mut self,
+        text: S,
+        position: (f32, f32),
+        size: f32,
+        color: [f32; 4],
+        scale: Option<f32>,
+        font: Option<&FontHandle>,
+    ) {
+        self.text_renderer.queue_text_ex(
+            text.as_ref(),
+            glam::Vec2::new(position.0, position.1),
+            size,
+            color,
+            scale,
+            font,
+        );
     }
 
     pub fn create_cached_text<S: AsRef<str>>(&mut self, text: S, size: f32) -> TextHandle {
         self.text_renderer.create_cached_text(text.as_ref(), size)
     }
 
-    pub fn create_cached_text_ex<S: AsRef<str>>(&mut self, text: S, size: f32, font: Option<&FontHandle>) -> TextHandle {
-        self.text_renderer.create_cached_text_ex(text.as_ref(), size, font)
+    pub fn create_cached_text_ex<S: AsRef<str>>(
+        &mut self,
+        text: S,
+        size: f32,
+        font: Option<&FontHandle>,
+    ) -> TextHandle {
+        self.text_renderer
+            .create_cached_text_ex(text.as_ref(), size, font)
     }
 
-    pub fn queue_cached_text(&mut self, handle: TextHandle, position: (f32, f32), color: [f32; 4], scale: f32) {
-        self.text_renderer.queue_cached_text(handle, glam::Vec2::new(position.0, position.1), color, scale);
+    pub fn queue_cached_text(
+        &mut self,
+        handle: TextHandle,
+        position: (f32, f32),
+        color: [f32; 4],
+        scale: f32,
+    ) {
+        self.text_renderer.queue_cached_text(
+            handle,
+            glam::Vec2::new(position.0, position.1),
+            color,
+            scale,
+        );
     }
 
     pub fn update_cached_text<S: AsRef<str>>(
@@ -132,10 +175,14 @@ impl Renderer {
         new_size: Option<f32>,
         new_font: Option<&FontHandle>,
     ) {
-        self.text_renderer.update_cached_text(text_handle, new_text.as_ref(), new_size, new_font);
+        self.text_renderer
+            .update_cached_text(text_handle, new_text.as_ref(), new_size, new_font);
     }
 
-    pub fn load_ttf_font_from_path<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<FontHandle, RenderError> {
+    pub fn load_ttf_font_from_path<P: AsRef<std::path::Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<FontHandle, RenderError> {
         Ok(self.text_renderer.load_ttf_font_from_path(path)?)
     }
 
@@ -303,7 +350,7 @@ impl Renderer {
                                 view: &view,
                                 resolve_target: None,
                                 ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Load,  // Keep shapes!
+                                    load: wgpu::LoadOp::Load, // Keep shapes!
                                     store: wgpu::StoreOp::Store,
                                 },
                                 depth_slice: None,

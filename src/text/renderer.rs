@@ -4,11 +4,11 @@ use glyphon::{
 use wgpu::MultisampleState;
 
 use crate::{
+    RenderError,
     text::{
         error::TextError,
         types::{BufferRef, CachedTextEntry, FontHandle, QueuedText, TextHandle},
     },
-    RenderError,
 };
 
 pub(crate) struct TextRenderer {

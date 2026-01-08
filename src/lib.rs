@@ -1,5 +1,6 @@
 pub mod error;
 pub(crate) mod init;
+pub(crate) mod pipeline;
 pub mod renderer;
 pub(crate) mod text;
 pub mod types;
