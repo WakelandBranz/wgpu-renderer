@@ -42,10 +42,12 @@ impl ApplicationHandler for RenderApp {
                     .create_window(
                         WindowAttributes::default()
                             .with_title("WGPU Renderer Test")
-                            .with_inner_size(winit::dpi::PhysicalSize {
-                                width: 800,
-                                height: 600,
-                            }),
+                            .with_maximized(true)
+                        //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+                        //.with_inner_size(winit::dpi::PhysicalSize {
+                        //        width: 800,
+                        //        height: 600,
+                        //    }),
                     )
                     .expect("Failed to create window"),
             );
@@ -53,8 +55,9 @@ impl ApplicationHandler for RenderApp {
             let size = window.inner_size();
             let mut renderer = pollster::block_on(Renderer::new(window.clone(), size)).unwrap();
 
-            //let video_game_awesome_font = renderer.load_ttf_font_from_path(std::path::Path::new("../res/fonts/PressStart2P-Regular.ttf")).unwrap();
-            let video_game_awesome_font = renderer.load_ttf_font_from_bytes(FONT_BYTES.into()).unwrap();
+            // I am bad at rust I didn't realize that the path that examples run from originates from 'project_name/'
+            let video_game_awesome_font = renderer.load_ttf_font_from_path(std::path::Path::new("res/fonts/PressStart2P-Regular.ttf")).unwrap();
+            //let video_game_awesome_font = renderer.load_ttf_font_from_bytes(FONT_BYTES.into()).unwrap();
             renderer.set_default_font(video_game_awesome_font);
             
             window.request_redraw();
@@ -86,6 +89,8 @@ impl ApplicationHandler for RenderApp {
                     renderer.queue_circle(600.0, 150.0, 40.0, [0.0, 0.0, 1.0, 1.0]);
 
                     // Queue text
+    
+                    // Bad example of cached text, but this will be useful in any ECS scenario.
                     let hello_text = renderer.create_cached_text("Hello, WGPU!", 32.0);
                     renderer.queue_cached_text(
                         hello_text,

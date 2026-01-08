@@ -82,9 +82,9 @@ impl TextRenderer {
     }
 
     /// Loads a .ttf file from a relative path
-    pub(crate) fn load_ttf_font_from_path(
+    pub(crate) fn load_ttf_font_from_path<P: AsRef<std::path::Path>>(
         &mut self,
-        path: &std::path::Path,
+        path: P,
     ) -> Result<FontHandle, TextError> {
         self.font_system
             .db_mut()
@@ -122,9 +122,9 @@ impl TextRenderer {
     }
 
     // TODO: Implement line height enum
-    pub(crate) fn create_buffer(
+    pub(crate) fn create_buffer<S: AsRef<str>>(
         &mut self,
-        text: &str,
+        text: S,
         size: f32,
         font: Option<&FontHandle>,
     ) -> glyphon::Buffer {
@@ -142,7 +142,7 @@ impl TextRenderer {
         );
         buffer.set_text(
             &mut self.font_system,
-            text,
+            text.as_ref(),
             &Attrs::new().family(family),
             Shaping::Advanced,
             None,
@@ -153,9 +153,9 @@ impl TextRenderer {
 
     /// Immediate mode
     /// Best for rendering text that does not persist and updates constantly
-    pub(crate) fn queue_text(
+    pub(crate) fn queue_text<S: AsRef<str>>(
         &mut self,
-        text: &str,
+        text: S,
         pos: glam::Vec2,
         size: f32,
         color: [f32; 4],
@@ -175,16 +175,16 @@ impl TextRenderer {
 
     /// Immediate mode
     /// Best for rendering text that does not persist and updates constantly
-    pub(crate) fn queue_text_ex(
+    pub(crate) fn queue_text_ex<S: AsRef<str>>(
         &mut self,
-        text: &str,
+        text: S,
         pos: glam::Vec2,
         size: f32,
         color: [f32; 4],
         scale: Option<f32>,
         font: Option<&FontHandle>,
     ) {
-        let buffer = self.create_buffer(text, size, font);
+        let buffer = self.create_buffer(text.as_ref(), size, font);
         let index = self.immediate_buffers.len();
         self.immediate_buffers.push(buffer);
         self.queued_renders.push(QueuedText {
@@ -199,8 +199,8 @@ impl TextRenderer {
     /// Cached mode
     /// Create text to cache and render later
     /// MUST EXPLICITLY QUEUE THE PROVIDED HANDLE TO RENDER!
-    pub(crate) fn create_cached_text(&mut self, text: &str, size: f32) -> TextHandle {
-        let buffer = self.create_buffer(text, size, None);
+    pub(crate) fn create_cached_text<S: AsRef<str>>(&mut self, text: S, size: f32) -> TextHandle {
+        let buffer = self.create_buffer(text.as_ref(), size, None);
         let index = self.cached_buffers.len();
         self.cached_buffers.push(CachedTextEntry { buffer, size });
         TextHandle(index)

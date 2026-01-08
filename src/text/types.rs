@@ -9,25 +9,25 @@ pub struct TextHandle(pub(crate) usize);
 pub struct FontHandle {
     /// Unique font face ID from fontdb
     pub id: fontdb::ID,
-    
+
     /// Primary family name (English US or first available)
     pub family_name: String,
-    
+
     /// PostScript name for precise font matching
     pub postscript_name: String,
-    
+
     /// Font style (normal, italic, oblique)
     pub style: fontdb::Style,
-    
+
     /// Font weight (100-900)
     pub weight: fontdb::Weight,
-    
+
     /// Font stretch (condensed, normal, expanded)
     pub stretch: fontdb::Stretch,
-    
+
     /// Whether the font is monospaced
     pub is_monospaced: bool,
-    
+
     /// Face index in the source (for font collections)
     pub face_index: u32,
 }
@@ -36,7 +36,8 @@ impl From<&fontdb::FaceInfo> for FontHandle {
     fn from(face: &fontdb::FaceInfo) -> Self {
         Self {
             id: face.id,
-            family_name: face.families
+            family_name: face
+                .families
                 .first()
                 .map(|(name, _)| name.clone())
                 .unwrap_or_default(),
@@ -55,17 +56,17 @@ impl FontHandle {
     pub fn display_name(&self) -> String {
         format!("{} ({})", self.family_name, self.postscript_name)
     }
-    
+
     /// Check if this font matches a specific family name
     pub fn matches_family(&self, name: &str) -> bool {
         self.family_name.eq_ignore_ascii_case(name)
     }
-    
+
     /// Check if this is a bold font (weight >= 700)
     pub fn is_bold(&self) -> bool {
         self.weight.0 >= 700
     }
-    
+
     /// Check if this is an italic or oblique font
     pub fn is_italic(&self) -> bool {
         matches!(self.style, fontdb::Style::Italic | fontdb::Style::Oblique)
